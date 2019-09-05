@@ -1,0 +1,23 @@
+FROM codait/max-base:powerai-v1.2.1
+
+#Install framework and supporting packages
+RUN ["/bin/bash", "-c", "cd /opt/anaconda3/bin && source activate base && conda install -y tensorflow" ] 
+RUN ["/bin/bash", "-c", "cd /opt/anaconda3/bin && source activate base && conda install -y -c conda-forge resampy json_tricks" ]
+
+ARG model_bucket=https://max-assets-prod.s3.us-south.cloud-object-storage.appdomain.cloud/max-audio-embedding-generator/1.0.0
+ARG model_file=assets.tar.gz
+
+RUN ["/bin/bash", "-c", "cd /opt/anaconda3/bin && source activate base && IBM_POWERAI_LICENSE_ACCEPT=yes ./accept-powerai-license.sh" ]
+
+WORKDIR /workspace
+
+RUN wget -nv --show-progress --progress=bar:force:noscroll ${model_bucket}/${model_file} --output-document=assets/${model_file}
+RUN tar -x -C assets/ -f assets/${model_file} -v && rm assets/${model_file}
+
+COPY . /workspace
+# check file integrity
+RUN sha512sum -c sha512sums.txt
+
+EXPOSE 5000
+
+CMD ["/bin/bash", "-c", "source /opt/anaconda3/bin/activate base && python3 app.py" ]
