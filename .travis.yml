@@ -1,14 +1,63 @@
+# Copyright 2018-2019 IBM Corp. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 language: python
 python:
   - 3.6
 services:
   - docker
+before_install:
+  - if [[ "$TRAVIS_BRANCH" == "master" ]]; then
+      VERSION=latest;
+    else
+      VERSION=$TRAVIS_BRANCH;
+    fi
 install:
-  - docker build -t max-audio-embedding-generator .
-  - docker run -it -d -p 5000:5000 max-audio-embedding-generator
-  - pip install pytest requests flake8
+  - docker build -f "$DOCKERFILE" -t codait/max-audio-embedding-generator:"$IMAGE"-"$ARCH"-"$VERSION" .
+  - docker run -it --rm -d -p 5000:5000 codait/max-audio-embedding-generator:"$IMAGE"-"$ARCH"-"$VERSION"
+  - pip install pytest requests scipy numpy flake8
 before_script:
   - flake8 . --max-line-length=127
-  - sleep 30 # give the container time to start
+  - sleep 30
 script:
   - pytest tests/test.py
+after_success:
+  - if [[ "$IMAGE" != "pipTestOnly" && "$TRAVIS_PULL_REQUEST" == "false" ]] && [[ "$TRAVIS_BRANCH" == "master" || "$TRAVIS_BRANCH" == "$TRAVIS_TAG" ]]; then
+      echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin;
+      docker push codait/max-audio-embedding-generator:"$IMAGE"-"$ARCH"-"$VERSION";
+    fi
+
+matrix:
+  include:
+  - os: linux
+    env: DOCKERFILE=Dockerfile IMAGE=pipTestOnly ARCH=x86_64
+  - os: linux
+    env: DOCKERFILE=Dockerfile.pai IMAGE=powerai ARCH=x86_64
+  - os: linux-ppc64le
+    env: DOCKERFILE=Dockerfile.pai IMAGE=powerai ARCH=ppc64le
+  - if: type = push AND (branch = master OR tag IS present)
+    stage: "Docker Manifest"
+    addons:
+      apt:
+        packages:
+          - docker-ce
+    install:
+    before_script:
+    script:
+      - export DOCKER_CLI_EXPERIMENTAL=enabled
+      - echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin;
+      - docker pull codait/max-audio-embedding-generator:powerai-ppc64le-"$VERSION";
+      - docker pull codait/max-audio-embedding-generator:powerai-x86_64-"$VERSION";
+      - docker manifest create codait/max-audio-embedding-generator:powerai-"$VERSION" codait/max-audio-embedding-generator:powerai-ppc64le-"$VERSION" codait/max-audio-embedding-generator:powerai-x86_64-"$VERSION";
+      - docker manifest push codait/max-audio-embedding-generator:powerai-"$VERSION";
